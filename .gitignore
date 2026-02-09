@@ -41,12 +41,6 @@ wheels/
 logs/
 .bot.log
 
-# Database backups
-*.db.bak
-*.sql
-data/*.db.backup
-data/*.db.*
-
 # Excel exports (contain PII)
 *.xlsx
 *.xls
