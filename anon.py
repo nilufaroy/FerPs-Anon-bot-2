@@ -406,7 +406,8 @@ def build_app() -> Application:
     # Note: init_db() is async and will be called from main.py startup
     builder = Application.builder().token(BOT_TOKEN)
     if AIORateLimiter is not None:  # optional
-        builder = builder.rate_limiter(AIORateLimiter())
+        # Configure rate limiter with proper retry settings
+        builder = builder.rate_limiter(AIORateLimiter(max_retries=3, retry_after=2))
     app = builder.build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("setgroup", cmd_setgroup, block=False))
