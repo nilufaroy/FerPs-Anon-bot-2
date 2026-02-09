@@ -75,7 +75,7 @@ DB_PATH = os.getenv("DB_PATH", "data/anonymous.db")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing. Put it in .env")
+    log.warning("BOT_TOKEN is not set. Telegram functionality will be disabled until a valid token is provided.")
 
 
 # Database is now initialized in database.py using Supabase

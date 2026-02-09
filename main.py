@@ -17,7 +17,7 @@ from telegram.ext import Application
 from anon import build_app
 from database import init_db
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(Path(__file__).resolve().parent / "data" / ".env")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ WEBHOOK_PATH = "/webhook/telegram"
 PORT = int(os.getenv("PORT", 8080))
 
 if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN is missing. Put it in .env")
+    log.warning("BOT_TOKEN is missing. Telegram bot will not be initialized until a valid token is provided in .env")
 
 app = FastAPI(title="FerPs Anonymous Bot")
 app_telegram: Optional[Application] = None
@@ -42,22 +42,25 @@ async def on_startup():
     # Initialize database
     await init_db()
     
-    app_telegram = build_app()
-    await app_telegram.initialize()
-    
-    webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
-    log.info(f"Setting webhook to: {webhook_url}")
-    
-    try:
-        await app_telegram.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-        )
-        log.info("✅ Webhook set successfully")
-    except Exception as e:
-        log.error(f"❌ Failed to set webhook: {e}")
-        raise
+    # Initialize Telegram bot only if token is present
+    if BOT_TOKEN:
+        try:
+            app_telegram = build_app()
+            await app_telegram.initialize()
+
+            webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
+            log.info(f"Setting webhook to: {webhook_url}")
+
+            await app_telegram.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+            )
+            log.info("✅ Webhook set successfully")
+        except Exception as e:
+            log.error(f"❌ Telegram initialization failed: {e}")
+            log.warning("Continuing without Telegram bot. Provide a valid BOT_TOKEN to enable it.")
+            app_telegram = None
 
 
 @app.on_event("shutdown")
@@ -72,13 +75,16 @@ async def on_shutdown():
 async def webhook(request: Request):
     """Webhook endpoint that receives updates from Telegram."""
     try:
+        if not app_telegram:
+            return {"ok": False, "error": "Telegram bot is not initialized"}
+
         data = await request.json()
         update = Update.de_json(data, app_telegram.bot)
-        
+
         if update:
             log.debug(f"Received update: {update.update_id}")
             await app_telegram.process_update(update)
-        
+
         return {"ok": True}
     except Exception as e:
         log.error(f"Error processing webhook: {e}", exc_info=True)
