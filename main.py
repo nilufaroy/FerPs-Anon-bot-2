@@ -53,8 +53,8 @@ async def on_startup():
             webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
             log.info(f"Setting webhook to: {webhook_url}")
 
-            # Retry logic for rate limiting
-            max_retries = 3
+            # Retry logic for rate limiting with exponential backoff
+            max_retries = 5
             for attempt in range(max_retries):
                 try:
                     await app_telegram.bot.set_webhook(
@@ -65,11 +65,12 @@ async def on_startup():
                     log.info("✅ Webhook set successfully")
                     break
                 except RetryAfter as e:
+                    wait_time = max(e.retry_after, 1) + (2 ** attempt)  # At least retry_after + exponential backoff
                     if attempt < max_retries - 1:
-                        wait_time = e.retry_after + (2 ** attempt)  # Exponential backoff
-                        log.warning(f"Rate limited. Retrying in {wait_time} seconds...")
+                        log.warning(f"Rate limited (attempt {attempt + 1}/{max_retries}). Waiting {wait_time}s before retry...")
                         await asyncio.sleep(wait_time)
                     else:
+                        log.error(f"Max retries exceeded. Rate limit error: {e}")
                         raise
         except Exception as e:
             log.error(f"❌ Telegram initialization failed: {e}")

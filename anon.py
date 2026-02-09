@@ -405,9 +405,8 @@ async def handle_non_private(update: Update, context: ContextTypes.DEFAULT_TYPE)
 def build_app() -> Application:
     # Note: init_db() is async and will be called from main.py startup
     builder = Application.builder().token(BOT_TOKEN)
-    if AIORateLimiter is not None:  # optional
-        # Configure rate limiter with proper retry settings
-        builder = builder.rate_limiter(AIORateLimiter(max_retries=3, retry_after=2))
+    # Note: Rate limiter is disabled on startup to avoid conflicts with webhook setup retries
+    # The webhook initialization in main.py handles rate limiting with exponential backoff
     app = builder.build()
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("setgroup", cmd_setgroup, block=False))
