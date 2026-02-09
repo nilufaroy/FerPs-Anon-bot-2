@@ -23,14 +23,11 @@ from __future__ import annotations
 
 import html
 import os
-import sqlite3
 import tempfile
-from contextlib import closing
 from pathlib import Path
 from typing import Optional
 import logging
 from dotenv import load_dotenv
-from pathlib import Path
 
 # Load .env from the same folder as anon.py
 load_dotenv(Path(__file__).resolve().parent / ".env")
@@ -50,6 +47,21 @@ from telegram.ext import (
     filters,
 )
 
+# Import Supabase database functions
+from database import (
+    init_db,
+    get_setting,
+    set_setting,
+    add_moderation_record,
+    get_moderation_record,
+    delete_moderation_record,
+    is_user_banned,
+    ban_user,
+    get_all_users,
+    get_user_submissions,
+    get_stats,
+)
+
 # Optional rate limiter (requires extra dependency). If missing, we run without it.
 try:
     from telegram.ext import AIORateLimiter  # pip install 'python-telegram-bot[rate-limiter]==20.8'
@@ -66,68 +78,9 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is missing. Put it in .env")
 
 
-# --------------------------- Storage --------------------------------------
-SCHEMA = """
-PRAGMA journal_mode=WAL;
-CREATE TABLE IF NOT EXISTS settings (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS moderation (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    username TEXT,
-    first_name TEXT,
-    last_name TEXT,
-    message_type TEXT NOT NULL,
-    content_text TEXT,
-    media_file_id TEXT,
-    channel_username TEXT NOT NULL,
-    channel_message_id INTEGER NOT NULL,
-    group_message_id INTEGER NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS bans (
-    user_id INTEGER PRIMARY KEY,
-    reason TEXT,
-    banned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-"""
+# Database is now initialized in database.py using Supabase
 
-def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db() -> None:
-    with closing(db()) as conn:
-        conn.executescript(SCHEMA)
-        # seed default channel
-        if conn.execute("SELECT value FROM settings WHERE key='CHANNEL_USERNAME'").fetchone() is None:
-            conn.execute(
-                "INSERT OR REPLACE INTO settings(key, value) VALUES('CHANNEL_USERNAME', ?)",
-                (DEFAULT_CHANNEL,),
-            )
-        # migrations (older DBs)
-        try:
-            cols = {r[1] for r in conn.execute("PRAGMA table_info(moderation)").fetchall()}
-            if "content_text" not in cols:
-                conn.execute("ALTER TABLE moderation ADD COLUMN content_text TEXT")
-            if "media_file_id" not in cols:
-                conn.execute("ALTER TABLE moderation ADD COLUMN media_file_id TEXT")
-        except Exception:
-            pass
-        conn.commit()
-
-def get_setting(key: str) -> Optional[str]:
-    with closing(db()) as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        return row[0] if row else None
-
-def set_setting(key: str, value: str) -> None:
-    with closing(db()) as conn:
-        conn.execute("INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)", (key, value))
-        conn.commit()
+# Database functions are now imported from database.py and are async
 
 # -------------------- Helpers -----------------------
 def user_mention_html(user) -> str:
@@ -149,7 +102,7 @@ async def is_group_admin(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_
 async def requester_is_admin(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
     if user_id in ADMIN_IDS:
         return True
-    gid = get_setting("GROUP_CHAT_ID")
+    gid = await get_setting("GROUP_CHAT_ID")
     if gid:
         try:
             member = await context.bot.get_chat_member(int(gid), user_id)
@@ -174,7 +127,7 @@ async def cmd_setgroup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if not await is_group_admin(context, chat.id, update.effective_user.id):
         await msg.reply_text("Only group admins can set the group.")
         return
-    set_setting("GROUP_CHAT_ID", str(chat.id))
+    await set_setting("GROUP_CHAT_ID", str(chat.id))
     await msg.reply_text("✅ This chat is now registered as the admin group.")
 
 async def cmd_setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -192,14 +145,14 @@ async def cmd_setchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not chan.startswith("@"):
         await msg.reply_text("Please provide a public @channel username.")
         return
-    set_setting("CHANNEL_USERNAME", chan)
+    await set_setting("CHANNEL_USERNAME", chan)
     await msg.reply_text(f"✅ Channel set to {chan}")
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    with closing(db()) as conn:
-        total = conn.execute("SELECT COUNT(*) FROM moderation").fetchone()[0]
-        banned = conn.execute("SELECT COUNT(*) FROM bans").fetchone()[0]
-    await update.effective_message.reply_text(f"Total moderated posts: {total}\nBanned users: {banned}")
+    stats = await get_stats()
+    await update.effective_message.reply_text(
+        f"Total moderated posts: {stats['total']}\nBanned users: {stats['banned']}"
+    )
 
 async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin-only: list unique users who submitted (most-recent first)."""
@@ -207,25 +160,25 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await requester_is_admin(uid, context):
         await update.effective_message.reply_text("Admins only.")
         return
-    with closing(db()) as conn:
-        base = conn.execute(
-            "SELECT user_id, MAX(created_at) AS last_at FROM moderation GROUP BY user_id ORDER BY last_at DESC"
-        ).fetchall()
-        if not base:
-            await update.effective_message.reply_text("No users found yet.")
-            return
-        lines = ["Users who sent messages:"]
-        for i, row in enumerate(base, start=1):
-            user_id = row["user_id"]
-            latest = conn.execute(
-                "SELECT username, first_name, last_name FROM moderation WHERE user_id=? ORDER BY created_at DESC LIMIT 1",
-                (user_id,),
-            ).fetchone()
-            username = (latest["username"] or "-")
-            if username and not username.startswith("@") and username != "-":
-                username = f"@{username}"
-            full_name = (" ".join(filter(None, [latest["first_name"], latest["last_name"]])) or "-")
-            lines.append(f"{i}. {user_id}(ChatID) - {username}(Username) - {full_name}(Profile name)")
+    
+    users = await get_all_users()
+    if not users:
+        await update.effective_message.reply_text("No users found yet.")
+        return
+    
+    lines = ["Users who sent messages:"]
+    for i, user_info in enumerate(users, start=1):
+        user_id = user_info["user_id"]
+        username = user_info.get("username") or "-"
+        if username and not username.startswith("@") and username != "-":
+            username = f"@{username}"
+        
+        first_name = user_info.get("first_name") or ""
+        last_name = user_info.get("last_name") or ""
+        full_name = " ".join(filter(None, [first_name, last_name])) or "-"
+        
+        lines.append(f"{i}. {user_id}(ChatID) - {username}(Username) - {full_name}(Profile name)")
+    
     # split into safe chunks
     chunk = ""
     for line in lines:
@@ -250,17 +203,14 @@ async def cmd_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     token = context.args[0].strip()
     if token.startswith("@"):
         token = token[1:]
-    with closing(db()) as conn:
-        if token.isdigit():
-            rows = conn.execute(
-                "SELECT * FROM moderation WHERE user_id=? ORDER BY created_at ASC", (int(token),)
-            ).fetchall()
-            label = token
-        else:
-            rows = conn.execute(
-                "SELECT * FROM moderation WHERE username = ? COLLATE NOCASE ORDER BY created_at ASC", (token,)
-            ).fetchall()
-            label = f"@{token}"
+    
+    if token.isdigit():
+        rows = await get_user_submissions(user_id=int(token))
+        label = token
+    else:
+        rows = await get_user_submissions(username=token)
+        label = f"@{token}"
+    
     if not rows:
         await update.effective_message.reply_text("No submissions found for that user.")
         return
@@ -318,12 +268,13 @@ async def handle_user_submission(update: Update, context: ContextTypes.DEFAULT_T
     msg, chat, user = update.effective_message, update.effective_chat, update.effective_user
     if chat.type != "private":
         return
-    with closing(db()) as conn:
-        if conn.execute("SELECT 1 FROM bans WHERE user_id=?", (user.id,)).fetchone():
-            await msg.reply_text("🚫 You are banned from submitting messages.")
-            return
-    channel_username = get_setting("CHANNEL_USERNAME") or DEFAULT_CHANNEL
-    group_id_str = get_setting("GROUP_CHAT_ID")
+    
+    # Check if user is banned
+    if await is_user_banned(user.id):
+        await msg.reply_text("🚫 You are banned from submitting messages.")
+        return
+    channel_username = await get_setting("CHANNEL_USERNAME") or DEFAULT_CHANNEL
+    group_id_str = await get_setting("GROUP_CHAT_ID")
     if not group_id_str:
         await msg.reply_text("⚠️ The admin group isn't set yet. Ask an admin to run /setgroup in the group.")
         return
@@ -366,15 +317,18 @@ async def handle_user_submission(update: Update, context: ContextTypes.DEFAULT_T
         log.exception("Failed to send to group")
         await msg.reply_text("I couldn't post to the admin group. Is the bot in that group?")
         return
-    with closing(db()) as conn:
-        cur = conn.execute(
-            ("INSERT INTO moderation (user_id, username, first_name, last_name, message_type, content_text, media_file_id, "
-             "channel_username, channel_message_id, group_message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
-            (user.id, user.username, user.first_name, user.last_name, kind,
-             content_text, media_file_id, channel_username, channel_copy.message_id, group_message.message_id),
-        )
-        mod_id = cur.lastrowid
-        conn.commit()
+    mod_id = await add_moderation_record(
+        user_id=user.id,
+        username=user.username,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        message_type=kind,
+        content_text=content_text,
+        media_file_id=media_file_id,
+        channel_username=channel_username,
+        channel_message_id=channel_copy.message_id,
+        group_message_id=group_message.message_id,
+    )
     chan_link = build_channel_link(channel_username, channel_copy.message_id)
     kb = [
         [InlineKeyboardButton("🗑", callback_data=f"del:{mod_id}"),
@@ -401,19 +355,20 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         mod_id = int(id_part)
     except ValueError:
         return
-    with closing(db()) as conn:
-        row = conn.execute("SELECT * FROM moderation WHERE id=?", (mod_id,)).fetchone()
+    
+    row = await get_moderation_record(mod_id)
     if not row:
         await q.edit_message_reply_markup(reply_markup=None)
         return
-    group_id = int(get_setting("GROUP_CHAT_ID") or 0)
+    group_id_str = await get_setting("GROUP_CHAT_ID")
+    group_id = int(group_id_str) if group_id_str else 0
     is_admin = (q.from_user.id in ADMIN_IDS)
     if not is_admin and q.message and q.message.chat and q.message.chat.id == group_id:
         is_admin = await is_group_admin(context, group_id, q.from_user.id)
     if not is_admin:
         await q.answer("Admins only.", show_alert=True)
         return
-    channel_username, channel_msg_id, target_user_id = row["channel_username"], row["channel_message_id"], row["user_id"]
+    channel_username, channel_msg_id, target_user_id = row.get("channel_username"), row.get("channel_message_id"), row.get("user_id")
     if action == "del":
         try:
             await context.bot.delete_message(chat_id=channel_username, message_id=channel_msg_id)
@@ -428,9 +383,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         except Exception:
             pass
     elif action == "ban":
-        with closing(db()) as conn:
-            conn.execute("INSERT OR IGNORE INTO bans(user_id, reason) VALUES(?, ?)", (target_user_id, "Admin ban"))
-            conn.commit()
+        await ban_user(target_user_id, "Admin ban")
         try:
             await context.bot.delete_message(chat_id=channel_username, message_id=channel_msg_id)
         except Exception:
@@ -450,14 +403,14 @@ async def handle_non_private(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return
 
 def build_app() -> Application:
-    init_db()
+    # Note: init_db() is async and will be called from main.py startup
     builder = Application.builder().token(BOT_TOKEN)
     if AIORateLimiter is not None:  # optional
         builder = builder.rate_limiter(AIORateLimiter())
     app = builder.build()
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("setgroup", cmd_setgroup))
-    app.add_handler(CommandHandler("setchannel", cmd_setchannel))
+    app.add_handler(CommandHandler("setgroup", cmd_setgroup, block=False))
+    app.add_handler(CommandHandler("setchannel", cmd_setchannel, block=False))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("user", cmd_user))
     app.add_handler(CommandHandler("info", cmd_info))

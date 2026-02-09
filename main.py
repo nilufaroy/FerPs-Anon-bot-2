@@ -15,6 +15,7 @@ from telegram import Update
 from telegram.ext import Application
 
 from anon import build_app
+from database import init_db
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -37,6 +38,10 @@ app_telegram: Optional[Application] = None
 async def on_startup():
     """Initialize the Telegram bot and set webhook."""
     global app_telegram
+    
+    # Initialize database
+    await init_db()
+    
     app_telegram = build_app()
     await app_telegram.initialize()
     
