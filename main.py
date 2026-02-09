@@ -6,6 +6,7 @@ This replaces the polling approach with webhooks for better performance and real
 """
 import os
 import logging
+import asyncio
 from typing import Optional
 from dotenv import load_dotenv
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.ext import Application
+from telegram.error import RetryAfter
 
 from anon import build_app
 from database import init_db
@@ -51,12 +53,24 @@ async def on_startup():
             webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
             log.info(f"Setting webhook to: {webhook_url}")
 
-            await app_telegram.bot.set_webhook(
-                url=webhook_url,
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True,
-            )
-            log.info("✅ Webhook set successfully")
+            # Retry logic for rate limiting
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await app_telegram.bot.set_webhook(
+                        url=webhook_url,
+                        allowed_updates=Update.ALL_TYPES,
+                        drop_pending_updates=True,
+                    )
+                    log.info("✅ Webhook set successfully")
+                    break
+                except RetryAfter as e:
+                    if attempt < max_retries - 1:
+                        wait_time = e.retry_after + (2 ** attempt)  # Exponential backoff
+                        log.warning(f"Rate limited. Retrying in {wait_time} seconds...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        raise
         except Exception as e:
             log.error(f"❌ Telegram initialization failed: {e}")
             log.warning("Continuing without Telegram bot. Provide a valid BOT_TOKEN to enable it.")
