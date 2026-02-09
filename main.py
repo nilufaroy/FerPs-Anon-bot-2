@@ -50,7 +50,7 @@ async def on_startup():
             app_telegram = build_app()
             await app_telegram.initialize()
 
-            webhook_url = f"{BASE_URL}{WEBHOOK_PATH}"
+            webhook_url = f"{BASE_URL.rstrip('/')}{WEBHOOK_PATH}"
             log.info(f"Setting webhook to: {webhook_url}")
 
             # Retry logic for rate limiting with exponential backoff
