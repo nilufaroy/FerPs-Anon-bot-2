@@ -6,7 +6,6 @@ import os
 import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from contextlib import asynccontextmanager
 
 from supabase import create_client, Client
 from dotenv import load_dotenv

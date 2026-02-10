@@ -4,7 +4,6 @@ FerPs Anonymous Bot - Interactive Setup Wizard
 Helps configure the bot for first-time users
 """
 
-import os
 import sys
 from pathlib import Path
 
@@ -48,37 +47,34 @@ def main():
     print("   You can add multiple: 123456789,987654321")
     admin_ids = read_input("   Admin IDs", "5821175466")
     
+    # Supabase configuration
+    print("\n3️⃣  SUPABASE CONFIGURATION")
+    supabase_url = read_input("   SUPABASE_URL")
+    while not supabase_url:
+        supabase_url = read_input("   SUPABASE_URL (required)")
+    supabase_service_key = read_input("   SUPABASE_SERVICE_ROLE_KEY")
+    while not supabase_service_key:
+        supabase_service_key = read_input("   SUPABASE_SERVICE_ROLE_KEY (required)")
+
     # Webhook configuration
-    print("\n3️⃣  WEBHOOK CONFIGURATION")
-    mode = read_input("   Use webhooks (w) or polling (p)?", "w").lower()
+    print("\n4️⃣  WEBHOOK CONFIGURATION")
+    print("   Enter your public domain or ngrok URL")
+    print("   Examples:")
+    print("      https://yourdomain.com")
+    print("      https://abc123.ngrok.io")
+    base_url = read_input("   Base URL (required for webhooks)")
+    while not base_url:
+        base_url = read_input("   Base URL (required)")
     
-    use_polling = "false"
-    base_url = ""
-    port = "8080"
-    
-    if mode == "p":
-        use_polling = "true"
-        base_url = "http://localhost:8080"
-        print("   ✅ Polling mode selected (for local testing)")
-    else:
-        print("   Enter your public domain or ngrok URL")
-        print("   Examples:")
-        print("      https://yourdomain.com")
-        print("      https://abc123.ngrok.io")
-        base_url = read_input("   Base URL (required for webhooks)")
-        while not base_url:
-            base_url = read_input("   Base URL (required)")
-        
-        port = read_input("   Port (default 8080)", "8080")
-        print("   ✅ Webhook mode selected")
+    port = read_input("   Port (default 8080)", "8080")
+    print("   ✅ Webhook mode selected")
     
     # Bot configuration
-    print("\n4️⃣  BOT CONFIGURATION")
+    print("\n5️⃣  BOT CONFIGURATION")
     channel = read_input("   Public channel (@name)", "@ferpsanonymous")
     
-    # Optional: Database
-    print("\n5️⃣  DATABASE & OTHER")
-    db_path = read_input("   Database path", "data/anonymous.db")
+    # Optional
+    print("\n6️⃣  OPTIONAL")
     timezone = read_input("   Timezone", "UTC")
     
     # Generate .env content
@@ -88,17 +84,17 @@ def main():
 # ============== REQUIRED ==============
 BOT_TOKEN={bot_token}
 
+# ============== SUPABASE ==============
+SUPABASE_URL={supabase_url}
+SUPABASE_SERVICE_ROLE_KEY={supabase_service_key}
+
 # ============== WEBHOOK CONFIGURATION ==============
 BASE_URL={base_url}
 PORT={port}
-USE_POLLING={use_polling}
 
 # ============== BOT CONFIGURATION ==============
 DEFAULT_CHANNEL={channel}
 ADMIN_IDS={admin_ids}
-
-# ============== DATABASE ==============
-DB_PATH={db_path}
 
 # ============== OPTIONAL ==============
 TZ={timezone}
@@ -117,25 +113,21 @@ TZ={timezone}
     print(f"   Bot Token: {'*' * (len(bot_token) - 4)}{bot_token[-4:]}")
     print(f"   Admin IDs: {admin_ids}")
     print(f"   Channel: {channel}")
-    print(f"   Mode: {'Polling (local testing)' if use_polling == 'true' else 'Webhook (production)'}")
-    if base_url:
-        print(f"   Webhook URL: {base_url}/webhook/telegram")
-    print(f"   Database: {db_path}")
+    masked_key = ("*" * (len(supabase_service_key) - 4) + supabase_service_key[-4:]) if len(supabase_service_key) > 4 else "*" * len(supabase_service_key)
+    print(f"   Supabase URL: {supabase_url}")
+    print(f"   Supabase Key: {masked_key}")
+    print(f"   Mode: Webhook (production)")
+    print(f"   Webhook URL: {base_url}/webhook/telegram")
     print(f"   Timezone: {timezone}")
     
     print("\n" + "="*60)
     print("🚀 Next Steps:")
     print("="*60 + "\n")
     
-    if use_polling != "true":
-        print("Webhook Setup:")
-        print("  1. Make sure BASE_URL is publicly accessible and uses HTTPS")
-        print("  2. Set up reverse proxy (nginx/Caddy) if needed")
-        print("  See WEBHOOK_SETUP.md for detailed instructions")
-    else:
-        print("Local Testing (Polling):")
-        print("  1. You can run the bot locally with polling")
-        print("  No public domain needed - perfect for testing!")
+    print("Webhook Setup:")
+    print("  1. Make sure BASE_URL is publicly accessible and uses HTTPS")
+    print("  2. Set up reverse proxy (nginx/Caddy) if needed")
+    print("  See WEBHOOK_SETUP.md for detailed instructions")
     
     print("\nServer Setup:")
     print("  With Docker:")

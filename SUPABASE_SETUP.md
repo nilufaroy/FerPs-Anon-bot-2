@@ -67,10 +67,10 @@ SUPABASE_PUBLISHABLE_KEY=your-publishable-key
 pip install -r requirements.txt
 ```
 
-Or just the Supabase packages:
+Or just the Supabase package:
 
 ```bash
-pip install supabase postgrest-py httpx
+pip install supabase
 ```
 
 ### 6. Run the Bot

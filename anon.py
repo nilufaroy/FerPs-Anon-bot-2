@@ -7,17 +7,17 @@ Features
 - A copy goes to an admin group with buttons: 🗑 delete, 🚫 ban, 👤 profile, 🔗 view in channel.
 - /user  → Admin-only list of unique senders (ChatID, @username, profile name).
 - /info @username or /info <user_id> → Admin-only .xlsx export (timestamps, links, embedded photos/stickers).
-- SQLite stores mappings, bans, and fields for exports.
+- Supabase stores mappings, bans, and fields for exports.
 
 Environment variables (or edit defaults below):
-  BOT_TOKEN         – Telegram bot token (required)
-  DEFAULT_CHANNEL   – Public @channel username (default: @ferpsanonymous)
-  DB_PATH           – SQLite path (default: anonymous.db)
-  ADMIN_IDS         – CSV of admin user IDs (default: "5821175466")
+  BOT_TOKEN                   – Telegram bot token (required)
+  DEFAULT_CHANNEL             – Public @channel username (default: @ferpsanonymous)
+  ADMIN_IDS                   – CSV of admin user IDs
+  SUPABASE_URL                – Supabase project URL (required)
+  SUPABASE_SERVICE_ROLE_KEY   – Supabase service role key (required)
 
 Dependencies:
-  pip install "python-telegram-bot==20.8" "openpyxl==3.1.5" "Pillow==10.4.0"
-  (Optional rate limiter) pip install 'python-telegram-bot[rate-limiter]==20.8'
+  pip install -r requirements.txt
 """
 from __future__ import annotations
 
@@ -49,7 +49,6 @@ from telegram.ext import (
 
 # Import Supabase database functions
 from database import (
-    init_db,
     get_setting,
     set_setting,
     add_moderation_record,
@@ -62,25 +61,14 @@ from database import (
     get_stats,
 )
 
-# Optional rate limiter (requires extra dependency). If missing, we run without it.
-try:
-    from telegram.ext import AIORateLimiter  # pip install 'python-telegram-bot[rate-limiter]==20.8'
-except Exception:  # pragma: no cover
-    AIORateLimiter = None
-
 # --------------------------- Config ---------------------------------------
 BOT_TOKEN = os.getenv("BOT_TOKEN")  # no default token here (safer)
 DEFAULT_CHANNEL = os.getenv("DEFAULT_CHANNEL", "@ferpsanonymous")
-DB_PATH = os.getenv("DB_PATH", "data/anonymous.db")
 ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip()}
 
 if not BOT_TOKEN:
     log.warning("BOT_TOKEN is not set. Telegram functionality will be disabled until a valid token is provided.")
 
-
-# Database is now initialized in database.py using Supabase
-
-# Database functions are now imported from database.py and are async
 
 # -------------------- Helpers -----------------------
 def user_mention_html(user) -> str:

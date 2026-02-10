@@ -19,7 +19,7 @@ from telegram.error import RetryAfter
 from anon import build_app
 from database import init_db
 
-load_dotenv(Path(__file__).resolve().parent / "data" / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)

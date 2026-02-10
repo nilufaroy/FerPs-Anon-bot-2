@@ -5,7 +5,7 @@
 ```bash
 # 1. Copy and configure
 cp .env.example .env
-# Edit .env with your BOT_TOKEN
+# Edit .env with BOT_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, BASE_URL
 
 # Or use interactive setup
 python setup.py
@@ -17,12 +17,10 @@ docker-compose up -d
 curl http://localhost:8080/health
 ```
 
-## Running Modes
+## Running Mode (Webhook)
 
-### 1. Webhook (Production)
 ```bash
 # In .env:
-USE_POLLING=false
 BASE_URL=https://yourdomain.com
 PORT=8080
 
@@ -31,19 +29,6 @@ docker-compose up -d
 
 # Local testing with ngrok:
 bash webhook-dev.sh
-```
-
-### 2. Polling (Local Testing)
-```bash
-# In .env:
-USE_POLLING=true
-
-# Run:
-docker-compose up
-
-# Or locally:
-pip install -r requirements.txt
-python main.py
 ```
 
 ## First Time Setup
@@ -132,15 +117,12 @@ docker-compose logs ferps-anon-bot
 
 ## Database Backup
 
-```bash
-# Backup
-cp data/anonymous.db data/anonymous.db.$(date +%Y%m%d_%H%M%S)
-
-# View with sqlite3
-sqlite3 data/anonymous.db
-> SELECT COUNT(*) FROM moderation;
-> SELECT user_id, COUNT(*) FROM moderation GROUP BY user_id;
+```sql
+SELECT COUNT(*) FROM moderation;
+SELECT user_id, COUNT(*) FROM moderation GROUP BY user_id;
 ```
+
+Run in the Supabase SQL Editor.
 
 ## Troubleshooting
 
@@ -148,21 +130,20 @@ sqlite3 data/anonymous.db
 |---------|----------|
 | Bot not receiving messages | Check webhook with `getWebhookInfo`, verify BASE_URL is HTTPS |
 | "Can't post to channel" | Make bot admin in channel, use `@channel` not channel ID |
-| "Database locked" | Restart: `docker-compose restart` |
+| "Database tables not found" | Run `SUPABASE_SCHEMA.sql` and verify Supabase env vars |
 | 502 Bad Gateway (nginx) | Check if container is running: `docker ps` |
-| High latency | Polling slow, use webhooks for real-time |
 
 ## Environment Variables
 
 ```
-BOT_TOKEN              Required - Telegram bot token
-BASE_URL              Webhook URL (required for webhook mode)
-PORT                  Listen port (default 8080)
-USE_POLLING           "true" for polling, "false" for webhooks
-DEFAULT_CHANNEL       Default channel for posts (@name)
-ADMIN_IDS             Comma-separated admin user IDs
-DB_PATH               SQLite database path
-TZ                    Timezone (default UTC)
+BOT_TOKEN                 Required - Telegram bot token
+SUPABASE_URL              Required - Supabase project URL
+SUPABASE_SERVICE_ROLE_KEY Required - Supabase service role key
+BASE_URL                 Webhook URL (required for webhook mode)
+PORT                     Listen port (default 8080)
+DEFAULT_CHANNEL          Default channel for posts (@name)
+ADMIN_IDS                Comma-separated admin user IDs
+TZ                       Timezone (default UTC)
 ```
 
 ## File Structure
@@ -180,9 +161,7 @@ TZ                    Timezone (default UTC)
 ├── webhook-dev.sh       ← ngrok test helper
 ├── README.md            ← Full documentation
 ├── WEBHOOK_SETUP.md     ← Webhook deployment guide
-├── QUICK_REFERENCE.md   ← This file
-└── data/
-    └── anonymous.db     ← SQLite database
+└── QUICK_REFERENCE.md   ← This file
 ```
 
 ## Common Tasks

@@ -34,10 +34,15 @@ cp .env.example .env
 Edit `.env`:
 ```
 BOT_TOKEN=your_token_here
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 BASE_URL=your_public_domain_or_ip
 DEFAULT_CHANNEL=@your_channel
 ADMIN_IDS=your_user_id
 ```
+
+Make sure you've created the Supabase tables by running `SUPABASE_SCHEMA.sql`
+in the Supabase SQL Editor (see `SUPABASE_SETUP.md`).
 
 ### 3. Get Your User ID
 
@@ -45,7 +50,7 @@ Send `/id` to [@userinfobot](https://t.me/userinfobot) on Telegram to find your 
 
 ## Running the Bot
 
-### Option 1: Webhook Mode (Production - Recommended)
+### Webhook Mode (Production - Recommended)
 
 Requires a public domain and HTTPS:
 
@@ -61,22 +66,10 @@ The webhook runs on port 8080 inside the container. You'll need to:
 - Reverse proxy (nginx, Caddy) to handle HTTPS and forward to port 8080, OR
 - Use ngrok for testing: `ngrok http 8080` then set `BASE_URL=https://your-ngrok-url.ngrok.io`
 
-### Option 2: Polling Mode (Local Testing)
-
-No public domain needed, but less efficient:
-
-```bash
-# In .env, set:
-USE_POLLING=true
-
-# Then run:
-docker-compose up
-```
-
 Or run locally:
 ```bash
 pip install -r requirements.txt
-python main.py  # Will use polling if USE_POLLING=true
+python main.py
 ```
 
 ## Setting Up the Bot
@@ -104,21 +97,13 @@ docker-compose up -d
 docker build -t ferps-anon .
 docker run -d \
   --name ferps-anon \
-  -v ./data:/data \
   -e BOT_TOKEN=your_token \
+  -e SUPABASE_URL=https://your-project.supabase.co \
+  -e SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
   -e BASE_URL=https://yourdomain.com \
   -p 8080:8080 \
   ferps-anon
 ```
-
-## Webhook vs Polling
-
-| Feature | Webhook | Polling |
-|---------|---------|---------|
-| **Latency** | Real-time (<100ms) | ~5-30 seconds |
-| **Server Cost** | Lower (no constant requests) | Higher (continuous requests) |
-| **Setup** | Requires public domain | Just run locally |
-| **Best For** | Production | Testing/development |
 
 ### Using ngrok for Webhook Testing
 
@@ -135,18 +120,14 @@ docker-compose up
 
 ## Database
 
-Uses SQLite for:
+Uses Supabase (PostgreSQL) for:
 - User ↔ submission mapping
 - Ban list
 - Configuration (channel, group IDs, etc.)
 - Export data for Excel reports
 
-Database location: `./data/anonymous.db`
-
-Backup regularly:
-```bash
-cp ./data/anonymous.db ./data/anonymous.db.backup
-```
+Make sure `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set in `.env`,
+and the schema from `SUPABASE_SCHEMA.sql` has been applied.
 
 ## Admin Commands Reference
 
@@ -194,25 +175,27 @@ curl http://localhost:8080/health
 - Check that channel username starts with `@`
 - Bot needs permission to post and edit messages
 
-### Database locked error
-- Another process is using the database
-- Restart the bot: `docker-compose restart`
+### "Database tables not found"
+- Run `SUPABASE_SCHEMA.sql` in the Supabase SQL Editor
+- Confirm `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`
 
 ## Environment Variables
 
 ```
 # Required
 BOT_TOKEN              - Your Telegram bot token
+SUPABASE_URL           - Supabase project URL
+SUPABASE_SERVICE_ROLE_KEY - Supabase service role key
 
 # Webhook config
 BASE_URL              - Public URL where webhook is accessible
 PORT                  - Port to listen on (default: 8080)
-USE_POLLING           - Set to "true" to use polling instead
 
 # Bot config
 DEFAULT_CHANNEL       - Default channel (@name) for posts
 ADMIN_IDS             - CSV of admin user IDs
-DB_PATH               - SQLite database path
+
+# Optional
 TZ                    - Timezone for timestamps
 ```
 

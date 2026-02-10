@@ -27,7 +27,7 @@ if [ ! -f .env ]; then
     echo -e "${YELLOW}⚠️  .env file not found${NC}"
     echo "Creating from .env.example..."
     cp .env.example .env
-    echo -e "${YELLOW}📝 Please edit .env with your BOT_TOKEN${NC}"
+    echo -e "${YELLOW}📝 Please edit .env with your BOT_TOKEN and Supabase keys${NC}"
     exit 1
 fi
 
@@ -38,6 +38,15 @@ else
     echo -e "${RED}❌ BOT_TOKEN not set in .env${NC}"
     echo "Edit .env and set your BOT_TOKEN from @BotFather"
     exit 1
+fi
+
+# Check Supabase configuration
+if grep -q "SUPABASE_URL=https://your-project.supabase.co" .env || grep -q "SUPABASE_SERVICE_ROLE_KEY=your-service-role-key" .env; then
+    echo -e "${RED}❌ Supabase credentials not set in .env${NC}"
+    echo "Edit .env and set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY"
+    exit 1
+else
+    echo -e "${GREEN}✅ Supabase credentials are configured${NC}"
 fi
 
 echo -e "${BLUE}Starting ngrok tunnel on port 8080...${NC}"
@@ -64,7 +73,6 @@ echo ""
 # Update .env with ngrok URL
 echo -e "${BLUE}Updating .env with webhook URL...${NC}"
 sed -i.bak "s|^BASE_URL=.*|BASE_URL=$ngrok_url|" .env
-sed -i.bak "s|^USE_POLLING=.*|USE_POLLING=false|" .env
 echo -e "${GREEN}✅ .env updated${NC}"
 echo ""
 
